@@ -2,7 +2,13 @@ import express from "express";
 import multer from "multer";
 import mammoth from "mammoth";
 import { parseDocument } from "htmlparser2";
-import { Document, Packer, Paragraph, TextRun } from "docx";
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+} from "docx";
 
 const app = express();
 const upload = multer(); // memory storage
@@ -44,7 +50,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 // --------------------------------------------------
-// 3️⃣ HTML → DOCX (preserve paragraphs, lists, bold)
+// 3️⃣ HTML → DOCX (preserve headings, paragraphs, lists)
 // --------------------------------------------------
 app.post(
   "/generate-docx",
@@ -64,68 +70,80 @@ app.post(
       const paragraphs = [];
 
       function walk(nodes) {
-  for (const node of nodes) {
+        for (const node of nodes) {
+          // --------------------
+          // HEADINGS (H1–H3)
+          // --------------------
+          if (node.name === "h1" || node.name === "h2" || node.name === "h3") {
+            const levelMap = {
+              h1: HeadingLevel.HEADING_1,
+              h2: HeadingLevel.HEADING_2,
+              h3: HeadingLevel.HEADING_3,
+            };
 
-    // ✅ HEADINGS (ADD THIS)
-    if (node.name === "h1" || node.name === "h2" || node.name === "h3") {
-      const level =
-        node.name === "h1" ? 1 :
-        node.name === "h2" ? 2 : 3;
+            paragraphs.push(
+              new Paragraph({
+                text: node.children?.[0]?.data || "",
+                heading: levelMap[node.name],
+              })
+            );
+          }
 
-      paragraphs.push(
-        new Paragraph({
-          text: node.children?.[0]?.data || "",
-          heading: `Heading${level}`,
-        })
-      );
-    }
+          // --------------------
+          // PARAGRAPHS
+          // --------------------
+          if (node.name === "p") {
+            const runs = [];
 
-    // Paragraphs (ALREADY EXISTING)
-    if (node.name === "p") {
-      const runs = [];
+            node.children?.forEach((child) => {
+              if (child.type === "text") {
+                runs.push(new TextRun(child.data));
+              }
 
-      node.children?.forEach((child) => {
-        if (child.type === "text") {
-          runs.push(new TextRun(child.data));
+              if (child.name === "strong") {
+                runs.push(
+                  new TextRun({
+                    text: child.children?.[0]?.data || "",
+                    bold: true,
+                  })
+                );
+              }
+
+              if (child.name === "em") {
+                runs.push(
+                  new TextRun({
+                    text: child.children?.[0]?.data || "",
+                    italics: true,
+                  })
+                );
+              }
+            });
+
+            paragraphs.push(new Paragraph({ children: runs }));
+          }
+
+          // --------------------
+          // BULLET LISTS
+          // --------------------
+          if (node.name === "ul") {
+            node.children?.forEach((li) => {
+              if (li.name === "li") {
+                paragraphs.push(
+                  new Paragraph({
+                    text: li.children?.[0]?.data || "",
+                    bullet: { level: 0 },
+                  })
+                );
+              }
+            });
+          }
+
+          // Recurse
+          if (node.children) {
+            walk(node.children);
+          }
         }
-
-        if (child.name === "strong") {
-          runs.push(
-            new TextRun({
-              text: child.children?.[0]?.data || "",
-              bold: true,
-            })
-          );
-        }
-
-        if (child.name === "em") {
-          runs.push(
-            new TextRun({
-              text: child.children?.[0]?.data || "",
-              italics: true,
-            })
-          );
-        }
-      });
-
-      paragraphs.push(new Paragraph({ children: runs }));
-    }
-
-    // Bullet lists (ALREADY EXISTING)
-    if (node.name === "ul") {
-      node.children?.forEach((li) => {
-        if (li.name === "li") {
-          paragraphs.push(
-            new Paragraph({
-              text: li.children?.[0]?.data || "",
-              bullet: { level: 0 },
-            })
-          );
-        }
-      });
-    }
-  }
-}
+      }
 
       walk(dom.children);
 
@@ -163,6 +181,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
