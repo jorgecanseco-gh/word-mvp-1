@@ -64,53 +64,68 @@ app.post(
       const paragraphs = [];
 
       function walk(nodes) {
-        for (const node of nodes) {
-          // Paragraphs
-          if (node.name === "p") {
-            const runs = [];
+  for (const node of nodes) {
 
-            node.children?.forEach((child) => {
-              if (child.type === "text") {
-                runs.push(new TextRun(child.data));
-              }
+    // ✅ HEADINGS (ADD THIS)
+    if (node.name === "h1" || node.name === "h2" || node.name === "h3") {
+      const level =
+        node.name === "h1" ? 1 :
+        node.name === "h2" ? 2 : 3;
 
-              if (child.name === "strong") {
-                runs.push(
-                  new TextRun({
-                    text: child.children?.[0]?.data || "",
-                    bold: true,
-                  })
-                );
-              }
+      paragraphs.push(
+        new Paragraph({
+          text: node.children?.[0]?.data || "",
+          heading: `Heading${level}`,
+        })
+      );
+    }
 
-              if (child.name === "em") {
-                runs.push(
-                  new TextRun({
-                    text: child.children?.[0]?.data || "",
-                    italics: true,
-                  })
-                );
-              }
-            });
+    // Paragraphs (ALREADY EXISTING)
+    if (node.name === "p") {
+      const runs = [];
 
-            paragraphs.push(new Paragraph({ children: runs }));
-          }
-
-          // Bullet lists
-          if (node.name === "ul") {
-            node.children?.forEach((li) => {
-              if (li.name === "li") {
-                paragraphs.push(
-                  new Paragraph({
-                    text: li.children?.[0]?.data || "",
-                    bullet: { level: 0 },
-                  })
-                );
-              }
-            });
-          }
+      node.children?.forEach((child) => {
+        if (child.type === "text") {
+          runs.push(new TextRun(child.data));
         }
-      }
+
+        if (child.name === "strong") {
+          runs.push(
+            new TextRun({
+              text: child.children?.[0]?.data || "",
+              bold: true,
+            })
+          );
+        }
+
+        if (child.name === "em") {
+          runs.push(
+            new TextRun({
+              text: child.children?.[0]?.data || "",
+              italics: true,
+            })
+          );
+        }
+      });
+
+      paragraphs.push(new Paragraph({ children: runs }));
+    }
+
+    // Bullet lists (ALREADY EXISTING)
+    if (node.name === "ul") {
+      node.children?.forEach((li) => {
+        if (li.name === "li") {
+          paragraphs.push(
+            new Paragraph({
+              text: li.children?.[0]?.data || "",
+              bullet: { level: 0 },
+            })
+          );
+        }
+      });
+    }
+  }
+}
 
       walk(dom.children);
 
@@ -148,6 +163,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
