@@ -41,7 +41,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 // --------------------------------------------------
-// 3️⃣ HTML → DOCX (with color support)
+// 3️⃣ HTML → DOCX (COLOR FIXED)
 // --------------------------------------------------
 app.post(
   "/generate-docx",
@@ -57,23 +57,46 @@ app.post(
       const dom = parseDocument(html);
       const paragraphs = [];
 
-      function extractColor(style = "") {
-        const match = style.match(/color:\s*(#[0-9a-fA-F]{6})/);
-        return match ? match[1].replace("#", "") : undefined;
+      // rgb(5, 99, 193) → 0563C1
+      function rgbToHex(rgb) {
+        const match = rgb.match(
+          /rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)/
+        );
+        if (!match) return undefined;
+
+        return match
+          .slice(1)
+          .map((n) => Number(n).toString(16).padStart(2, "0"))
+          .join("")
+          .toUpperCase();
       }
 
-      function buildTextRuns(nodes) {
+      function extractColor(style = "") {
+        if (style.includes("rgb")) {
+          return rgbToHex(style);
+        }
+
+        const hex = style.match(/color:\s*(#[0-9a-fA-F]{6})/);
+        return hex ? hex[1].replace("#", "").toUpperCase() : undefined;
+      }
+
+      function buildTextRuns(nodes, inheritedStyle = {}) {
         const runs = [];
 
         for (const node of nodes) {
           if (node.type === "text") {
-            runs.push(new TextRun(node.data));
+            runs.push(
+              new TextRun({
+                text: node.data,
+                ...inheritedStyle,
+              })
+            );
           }
 
           if (node.name === "strong") {
             runs.push(
-              new TextRun({
-                text: node.children?.[0]?.data || "",
+              ...buildTextRuns(node.children || [], {
+                ...inheritedStyle,
                 bold: true,
               })
             );
@@ -81,8 +104,8 @@ app.post(
 
           if (node.name === "em") {
             runs.push(
-              new TextRun({
-                text: node.children?.[0]?.data || "",
+              ...buildTextRuns(node.children || [], {
+                ...inheritedStyle,
                 italics: true,
               })
             );
@@ -91,9 +114,9 @@ app.post(
           if (node.name === "span") {
             const color = extractColor(node.attribs?.style || "");
             runs.push(
-              new TextRun({
-                text: node.children?.[0]?.data || "",
-                color,
+              ...buildTextRuns(node.children || [], {
+                ...inheritedStyle,
+                ...(color ? { color } : {}),
               })
             );
           }
@@ -184,6 +207,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+
 
 
 
