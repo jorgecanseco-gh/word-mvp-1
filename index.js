@@ -33,10 +33,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       buffer: req.file.buffer,
     });
 
-    res.json({
-      ok: true,
-      html: result.value,
-    });
+    res.json({ ok: true, html: result.value });
   } catch (error) {
     console.error(error);
     res.status(500).json({ ok: false, error: "Failed to extract document" });
@@ -44,7 +41,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 // --------------------------------------------------
-// 3️⃣ HTML → DOCX (HEADINGS + LISTS + FORMATTING)
+// 3️⃣ HTML → DOCX (with color support)
 // --------------------------------------------------
 app.post(
   "/generate-docx",
@@ -60,41 +57,56 @@ app.post(
       const dom = parseDocument(html);
       const paragraphs = [];
 
-      function textRuns(children) {
+      function extractColor(style = "") {
+        const match = style.match(/color:\s*(#[0-9a-fA-F]{6})/);
+        return match ? match[1].replace("#", "") : undefined;
+      }
+
+      function buildTextRuns(nodes) {
         const runs = [];
 
-        children?.forEach((child) => {
-          if (child.type === "text") {
-            runs.push(new TextRun(child.data));
+        for (const node of nodes) {
+          if (node.type === "text") {
+            runs.push(new TextRun(node.data));
           }
 
-          if (child.name === "strong") {
+          if (node.name === "strong") {
             runs.push(
               new TextRun({
-                text: child.children?.[0]?.data || "",
+                text: node.children?.[0]?.data || "",
                 bold: true,
               })
             );
           }
 
-          if (child.name === "em") {
+          if (node.name === "em") {
             runs.push(
               new TextRun({
-                text: child.children?.[0]?.data || "",
+                text: node.children?.[0]?.data || "",
                 italics: true,
               })
             );
           }
-        });
+
+          if (node.name === "span") {
+            const color = extractColor(node.attribs?.style || "");
+            runs.push(
+              new TextRun({
+                text: node.children?.[0]?.data || "",
+                color,
+              })
+            );
+          }
+        }
 
         return runs;
       }
 
       function walk(nodes) {
         for (const node of nodes) {
-          // -------- HEADINGS --------
-          if (node.name === "h1" || node.name === "h2" || node.name === "h3") {
-            const map = {
+          // HEADINGS
+          if (["h1", "h2", "h3"].includes(node.name)) {
+            const levelMap = {
               h1: HeadingLevel.HEADING_1,
               h2: HeadingLevel.HEADING_2,
               h3: HeadingLevel.HEADING_3,
@@ -102,28 +114,28 @@ app.post(
 
             paragraphs.push(
               new Paragraph({
-                children: textRuns(node.children),
-                heading: map[node.name],
+                children: buildTextRuns(node.children || []),
+                heading: levelMap[node.name],
               })
             );
           }
 
-          // -------- PARAGRAPHS --------
+          // PARAGRAPHS
           if (node.name === "p") {
             paragraphs.push(
               new Paragraph({
-                children: textRuns(node.children),
+                children: buildTextRuns(node.children || []),
               })
             );
           }
 
-          // -------- BULLET LISTS --------
+          // BULLET LISTS
           if (node.name === "ul") {
             node.children?.forEach((li) => {
               if (li.name === "li") {
                 paragraphs.push(
                   new Paragraph({
-                    children: textRuns(li.children),
+                    children: buildTextRuns(li.children || []),
                     bullet: { level: 0 },
                   })
                 );
@@ -139,11 +151,11 @@ app.post(
 
       walk(dom.children);
 
-      const doc = new Document({
+      const document = new Document({
         sections: [{ children: paragraphs }],
       });
 
-      const buffer = await Packer.toBuffer(doc);
+      const buffer = await Packer.toBuffer(document);
 
       res.setHeader(
         "Content-Type",
@@ -159,7 +171,7 @@ app.post(
       console.error(error);
       res.status(500).json({
         ok: false,
-        error: "Failed to generate DOCX",
+        error: "Failed to generate DOCX from HTML",
       });
     }
   }
@@ -172,6 +184,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+
 
 
 
