@@ -11,7 +11,7 @@ import {
 } from "docx";
 
 const app = express();
-const upload = multer(); // memory storage
+const upload = multer();
 
 // --------------------------------------------------
 // 1️⃣ HEALTH CHECK
@@ -21,14 +21,11 @@ app.get("/", (req, res) => {
 });
 
 // --------------------------------------------------
-// 2️⃣ UPLOAD DOCX → EXTRACT HTML (preserve structure)
+// 2️⃣ UPLOAD DOCX → HTML
 // --------------------------------------------------
 app.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({
-      ok: false,
-      error: "No file received",
-    });
+    return res.status(400).json({ ok: false, error: "No file received" });
   }
 
   try {
@@ -41,16 +38,13 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       html: result.value,
     });
   } catch (error) {
-    console.error("Mammoth error:", error);
-    res.status(500).json({
-      ok: false,
-      error: "Failed to extract document",
-    });
+    console.error(error);
+    res.status(500).json({ ok: false, error: "Failed to extract document" });
   }
 });
 
 // --------------------------------------------------
-// 3️⃣ HTML → DOCX (preserve headings, paragraphs, lists)
+// 3️⃣ HTML → DOCX (HEADINGS + LISTS + FORMATTING)
 // --------------------------------------------------
 app.post(
   "/generate-docx",
@@ -59,23 +53,48 @@ app.post(
     const { html } = req.body;
 
     if (!html) {
-      return res.status(400).json({
-        ok: false,
-        error: "No HTML provided",
-      });
+      return res.status(400).json({ ok: false, error: "No HTML provided" });
     }
 
     try {
       const dom = parseDocument(html);
       const paragraphs = [];
 
+      function textRuns(children) {
+        const runs = [];
+
+        children?.forEach((child) => {
+          if (child.type === "text") {
+            runs.push(new TextRun(child.data));
+          }
+
+          if (child.name === "strong") {
+            runs.push(
+              new TextRun({
+                text: child.children?.[0]?.data || "",
+                bold: true,
+              })
+            );
+          }
+
+          if (child.name === "em") {
+            runs.push(
+              new TextRun({
+                text: child.children?.[0]?.data || "",
+                italics: true,
+              })
+            );
+          }
+        });
+
+        return runs;
+      }
+
       function walk(nodes) {
         for (const node of nodes) {
-          // --------------------
-          // HEADINGS (H1–H3)
-          // --------------------
+          // -------- HEADINGS --------
           if (node.name === "h1" || node.name === "h2" || node.name === "h3") {
-            const levelMap = {
+            const map = {
               h1: HeadingLevel.HEADING_1,
               h2: HeadingLevel.HEADING_2,
               h3: HeadingLevel.HEADING_3,
@@ -83,54 +102,28 @@ app.post(
 
             paragraphs.push(
               new Paragraph({
-                text: node.children?.[0]?.data || "",
-                heading: levelMap[node.name],
+                children: textRuns(node.children),
+                heading: map[node.name],
               })
             );
           }
 
-          // --------------------
-          // PARAGRAPHS
-          // --------------------
+          // -------- PARAGRAPHS --------
           if (node.name === "p") {
-            const runs = [];
-
-            node.children?.forEach((child) => {
-              if (child.type === "text") {
-                runs.push(new TextRun(child.data));
-              }
-
-              if (child.name === "strong") {
-                runs.push(
-                  new TextRun({
-                    text: child.children?.[0]?.data || "",
-                    bold: true,
-                  })
-                );
-              }
-
-              if (child.name === "em") {
-                runs.push(
-                  new TextRun({
-                    text: child.children?.[0]?.data || "",
-                    italics: true,
-                  })
-                );
-              }
-            });
-
-            paragraphs.push(new Paragraph({ children: runs }));
+            paragraphs.push(
+              new Paragraph({
+                children: textRuns(node.children),
+              })
+            );
           }
 
-          // --------------------
-          // BULLET LISTS
-          // --------------------
+          // -------- BULLET LISTS --------
           if (node.name === "ul") {
             node.children?.forEach((li) => {
               if (li.name === "li") {
                 paragraphs.push(
                   new Paragraph({
-                    text: li.children?.[0]?.data || "",
+                    children: textRuns(li.children),
                     bullet: { level: 0 },
                   })
                 );
@@ -138,7 +131,6 @@ app.post(
             });
           }
 
-          // Recurse
           if (node.children) {
             walk(node.children);
           }
@@ -147,11 +139,11 @@ app.post(
 
       walk(dom.children);
 
-      const document = new Document({
+      const doc = new Document({
         sections: [{ children: paragraphs }],
       });
 
-      const buffer = await Packer.toBuffer(document);
+      const buffer = await Packer.toBuffer(doc);
 
       res.setHeader(
         "Content-Type",
@@ -164,20 +156,19 @@ app.post(
 
       res.send(buffer);
     } catch (error) {
-      console.error("DOCX generation error:", error);
+      console.error(error);
       res.status(500).json({
         ok: false,
-        error: "Failed to generate DOCX from HTML",
+        error: "Failed to generate DOCX",
       });
     }
   }
 );
 
 // --------------------------------------------------
-// 4️⃣ START SERVER (Railway compatible)
+// 4️⃣ START SERVER
 // --------------------------------------------------
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
