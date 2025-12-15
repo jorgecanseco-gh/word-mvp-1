@@ -25,14 +25,16 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 
   try {
-    const result = await mammoth.extractRawText({
-      buffer: req.file.buffer,
-    });
+      const result = await mammoth.convertToHtml({
+    buffer: req.file.buffer,
+  });
 
-    res.json({
-      ok: true,
-      text: result.value,
-    });
+
+     res.json({
+    ok: true,
+    html: result.value,
+  });
+
   } catch (error) {
     console.error("Mammoth error:", error);
     res.status(500).json({
@@ -99,6 +101,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
